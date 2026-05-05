@@ -1,61 +1,53 @@
 /**
- * @description this file contains get groups common utils
+ * @description this file contains post groups common utils
  */
 
 /**
- * @description Function to prepare groups response
- * @param {String} scenarioId - scenarioId from input
- * @param {Array} groupsData - groups details (flat rows from DB join)
- * @param {Object} scenarioStepStatusData - scenario step status details
- * @returns {Object} response - Formatted response
+ * @description Function to prepare success response for post groups api
+ * @returns {Object} response - success response
  */
-function prepareResponse(scenarioId, groupsData, scenarioStepStatusData) {
+function prepareResponse() {
   return {
-    scenarioId,
-    data: formatGroupsData(groupsData),
-    scenarioSteps: scenarioStepStatusData,
+    message: "Successfully updated data.",
   };
 }
 
 /**
- * @description Function to format flat groups rows into grouped response
- * Groups flat DB rows by groupScenarioMapId and aggregates subSeries into subSeriesList
- * @param {Array} groupsData - flat rows from DB query with groupScenarioMapId, groupName, vanningCenter, subSeries
- * @returns {Array} formatted groups array with subSeriesList
+ * @description Function to split payload rows into update rows and create rows
+ * @param {Array} data - request body data array
+ * @returns {Object} updateGroups and newGroups
  */
-function formatGroupsData(groupsData) {
-  if (!groupsData || groupsData.length === 0) {
-    return [];
-  }
-
-  /**
-   * @description Group flat rows by groupScenarioMapId
-   * and collect subSeries into subSeriesList array
-   */
-  const groupMap = {};
-  groupsData.forEach((row) => {
-    if (!groupMap[row.groupScenarioMapId]) {
-      groupMap[row.groupScenarioMapId] = {
-        groupId: row.groupId,
-        groupScenarioMapId: row.groupScenarioMapId,
-        groupName: row.groupName,
-        vanningCenter: row.vanningCenter,
-        subSeriesList: new Set(),
-      };
+function segregateUpdateAndNewGroupInput(data) {
+  const updateGroups = [];
+  const newGroups = [];
+  (data || []).forEach((item) => {
+    if (typeof item.groupScenarioMapId === "string") {
+      updateGroups.push(item);
+    } else {
+      newGroups.push(item);
     }
-    groupMap[row.groupScenarioMapId].subSeriesList.add(row.subSeries);
   });
 
-  /**
-   * @description Convert grouped object into response array format
-   * and convert Set to Array for subSeriesList
-   */
-  return Object.values(groupMap).map((group) => ({
-    ...group,
-    subSeriesList: [...group.subSeriesList],
+  return { updateGroups, newGroups };
+}
+/**
+ * @description Function to prepare bulk upsert scenario link rows
+ * @param {String} scenarioId - scenario id
+ * @param {String} userEmail - user email
+ * @param {Array} finalGroupsData - array of { groupId, groupName }
+ * @returns {Array} formatted rows for bulk upsert
+ */
+function prepareScenarioLinksData(scenarioId, userEmail, finalGroupsData) {
+  return (finalGroupsData || []).map((item) => ({
+    scenarioId,
+    userEmail,
+    groupId: item.groupId,
+    groupName: item.groupName,
   }));
 }
 
 module.exports = {
   prepareResponse,
+  segregateUpdateAndNewGroupInput,
+  prepareScenarioLinksData,
 };

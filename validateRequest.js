@@ -6,72 +6,83 @@ const { dbConnect } = require("prismaORM/index");
 const { scenariosData } = require("prismaORM/services/scenariosService");
 const {
   getValidationSchema,
-} = require("schemaValidator/supplyPlanning/grouping/getGroupsSchema");
+} = require("schemaValidator/supplyPlanning/grouping/postGroupsSchema");
+const {
+  emptyInputCheck,
+  checkForNonEditableScenario,
+} = require("utils/common_utils");
+const { BadRequest } = require("utils/api_response_utils");
 
 /**
- * @description Function to validate input request query params
- * @param {Object} inputParams: API input query params
- * @returns {Promise<Array>} errorMessages - Validation errors if any
+ * @description Function to validate input request body
+ * @param {Object} body: API input request body
+ * @returns {Promise<Object>} errorMessages - Validation errors if any
+ * & scenarioData - scenario data by scenarioId
  */
-async function validateInput(inputParams) {
+async function validateInput(body) {
   const errorMessages = [];
   /**
-   * @description Validate request query params using Joi schema
-   * @param {Object} inputParams - request query params
-   * @param {Array} errorMessages - array of validation errors
+   * @description Function to check if request body is empty
+   * @param {Object} body: Input request
    */
-  validateParams(inputParams, errorMessages);
-  /* If Joi input validation was successful, check if scenario exists or not*/
+  emptyInputCheck(body);
+  /**
+   * @description Validate request body using Joi schema
+   */
+  validateParams(body, errorMessages);
+  
+  let scenarioData = null;
+  /**
+   * @description If Joi validation passed, perform DB validations
+   */
   if (errorMessages.length === 0) {
     /**
-     * @description Function to check if a scenario exists
-     * @param {Object} inputParams: Input request payload
-     * @param {Array} errorMessages: array to collect validation errors
-     * @returns {Promise<boolean>} Throws error if scenario doesn't exist
+     * @description Validate scenario exists (DB validation)
      */
-    await checkForInvalidScenario(inputParams, errorMessages);
+    scenarioData = await checkForInvalidScenario(body);
+    /**
+     * @description If scenario exists, validate that all simulations are in draft status
+     */
+    await checkForNonEditableScenario(body);
   }
-  return { errorMessages };
+  return { errorMessages: [...new Set(errorMessages)], scenarioData };
 }
 
 /**
- * @description Function to validate request params using Joi schema
- * @param {Object} inputParams - request query params
+ * @description Function to validate request body using Joi schema
+ * @param {Object} reqBody - request body
  * @param {Array} errorMessages - array to collect validation errors
  */
-function validateParams(inputParams, errorMessages) {
-  // Validation options to collect all error messages
-  const options = { abortEarly: false };
+function validateParams(reqBody, errorMessages) {
   const schema = getValidationSchema();
-  const { error } = schema.validate(inputParams, options);
-  if (error) {
-    error.details.forEach((detail) => {
-      errorMessages.push(detail.message);
-    });
+  const { error } = schema.validate(reqBody, { abortEarly: false });
+  if (error?.details?.length) {
+    error.details.forEach((e) => errorMessages.push(e.message));
   }
 }
 
 /**
  * @description Function to check if a scenario exists
- * @param {Object} inputParams: Input request query params
- * @param {Array} errorMessages: array to collect validation errors
- * @returns {Promise<boolean>} Throws error if scenario doesn't exist
+ * @param {Object} reqBody - request body
+ * @returns {Promise<Object|null>} scenario row if exists else throw error
  */
-async function checkForInvalidScenario(inputParams, errorMessages) {
-  /* Connecting to DB instance */
+async function checkForInvalidScenario(reqBody) {
   const rdb = await dbConnect();
-  const scenariosDataService = new scenariosData(rdb);
+  const scenariosService = new scenariosData(rdb);
   try {
     /**
      * @description Get scenario data by scenarioId
      */
-    const scenarioData = await scenariosDataService.getScenarioDataById(
-      inputParams.scenarioId
+    const scenarioData = await scenariosService.getScenarioDataById(
+      reqBody.scenarioId
     );
-    /* Check if scenario doesn't exist */
+    /**
+     * @description If scenario doesn't exist, add validation error and return null
+     */
     if (!scenarioData || scenarioData.length === 0) {
-      errorMessages.push(`ValidationError: Scenario doesn't exist.`);
+      throw new BadRequest("ValidationError: Scenario doesn't exist.");
     }
+    return scenarioData[0];
   } catch (err) {
     console.log("Error in checkForInvalidScenario:", err);
     throw err;
